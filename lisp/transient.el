@@ -1607,6 +1607,8 @@ to `transient-predicate-map'.  Also see `transient-base-map'.")
     ;; but does not set `this-command', `this-original-command'
     ;; or `real-this-command' accordingly.  Instead they are nil.
     (define-key map [nil] #'transient--do-warn)
+    ;; This must always be allowed.
+    (define-key map [top-level] #'transient--do-call)
     map)
   "Base keymap used to map common commands to their transient behavior.
 
@@ -1953,6 +1955,8 @@ value.  Otherwise return CHILDREN as is."
   (transient--push-keymap 'transient--redisplay-map)
   (add-hook 'pre-command-hook  #'transient--pre-command)
   (add-hook 'post-command-hook #'transient--post-command)
+  (advice-add #'recursive-edit :around #'transient--recursive-edit)
+  (advice-add #'top-level :after #'transient--top-level)
   (when transient--exitp
     ;; This prefix command was invoked as the suffix of another.
     ;; Prevent `transient--post-command' from removing the hooks
@@ -2069,6 +2073,19 @@ value.  Otherwise return CHILDREN as is."
   (add-hook 'pre-command-hook  #'transient--pre-command)
   (add-hook 'post-command-hook #'transient--post-command))
 
+(defun transient--recursive-edit (fn)
+  (transient--debug 'recursive-edit)
+  (if (not transient--prefix)
+      (funcall fn)
+    (transient--suspend-override (bound-and-true-p edebug-active))
+    (funcall fn) ; Comes with unwind protection.
+    (when transient--prefix
+      (transient--resume-override))))
+
+(defun transient--top-level ()
+  (transient--debug 'top-level)
+  (transient--emergency-exit))
+
 (defmacro transient--with-suspended-override (&rest body)
   (let ((depth (make-symbol "depth"))
         (setup (make-symbol "setup"))
@@ -2161,7 +2178,9 @@ value.  Otherwise return CHILDREN as is."
                    ;; but decided not to call `transient-setup'.
                    (prog1 nil (transient--stack-zap))))
     (remove-hook 'pre-command-hook  #'transient--pre-command)
-    (remove-hook 'post-command-hook #'transient--post-command))
+    (remove-hook 'post-command-hook #'transient--post-command)
+    (advice-remove #'recursive-edit #'transient--recursive-edit)
+    (advice-remove #'top-level      #'transient--top-level))
   (setq transient-current-prefix nil)
   (setq transient-current-command nil)
   (setq transient-current-suffixes nil)
@@ -3822,23 +3841,6 @@ search instead."
       (`(transient-blue transient-blue) 'transient-blue))))
 
 ;;;; Edebug
-
-(defun transient--edebug--recursive-edit (fn arg-mode)
-  (transient--debug 'edebug--recursive-edit)
-  (if (not transient--prefix)
-      (funcall fn arg-mode)
-    (transient--suspend-override t)
-    (funcall fn arg-mode)
-    (transient--resume-override)))
-
-(advice-add 'edebug--recursive-edit :around #'transient--edebug--recursive-edit)
-
-(defun transient--abort-edebug ()
-  (when (bound-and-true-p edebug-active)
-    (transient--emergency-exit)))
-
-(advice-add 'abort-recursive-edit :before #'transient--abort-edebug)
-(advice-add 'top-level :before #'transient--abort-edebug)
 
 (defun transient--edebug-command-p ()
   (and (bound-and-true-p edebug-active)
