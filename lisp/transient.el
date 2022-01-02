@@ -3402,11 +3402,16 @@ doesn't use the `face' property at all, then apply the face
 is nil, then use \"(BUG: no description)\" as the description.
 If the OBJ's `key' is currently unreachable, then apply the face
 `transient-unreachable' to the complete string."
-  (let ((desc (or (cl-call-next-method obj)
-                  (and (slot-boundp transient--prefix 'suffix-description)
-                       (funcall (oref transient--prefix suffix-description)
-                                obj))
-                  (propertize "(BUG: no description)" 'face 'error))))
+  (let ((desc (if-let ((doc (and t ; TODO variable and toggle command
+                                 ;;; TODO temp enabling scrolling if necessary.
+                                 (ignore-errors
+                                   (documentation (oref obj command))))))
+                  (substring doc 0 (string-search "\n" doc))
+                (or (cl-call-next-method obj)
+                    (and (slot-boundp transient--prefix 'suffix-description)
+                         (funcall (oref transient--prefix suffix-description)
+                                  obj))
+                    (propertize "(BUG: no description)" 'face 'error)))))
     (cond ((transient--key-unreachable-p obj)
            (propertize desc 'face 'transient-unreachable))
           ((and transient-highlight-higher-levels
